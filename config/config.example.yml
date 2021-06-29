@@ -1,0 +1,6 @@
+auth:
+    user: 'user'
+    pkey: '/home/admin/.ssh/admin'
+timeout: 10s
+threads: 20
+port: 2121
