@@ -2,7 +2,7 @@ package main
 
 import (
 	"fmt"
-	"strings"
+	"huensible/modules"
 	"sync"
 	"time"
 
@@ -18,9 +18,10 @@ type Result struct {
 }
 
 var (
-	clienConfig *ssh.ClientConfig
-	inventory   []string
-	outputMutex sync.Mutex
+	clienConfig   *ssh.ClientConfig
+	inventory     []string
+	moduleFactory modules.ModuleFactory
+	outputMutex   sync.Mutex
 )
 
 func init() {
@@ -34,6 +35,7 @@ func init() {
 	viper.SetDefault("port", 22)
 
 	inventoryFile := pflag.StringP("inventory", "i", "", "inventory file to use")
+	moduleFlag := pflag.StringP("module", "m", "command", "which module to use. Default is command")
 
 	if err := viper.ReadInConfig(); err != nil {
 		log.Panic(err)
@@ -63,6 +65,11 @@ func init() {
 		log.Panic(err)
 	}
 
+	moduleFactory, err = parseModule(*moduleFlag)
+	if err != nil {
+		log.Panic(err)
+	}
+
 	clienConfig = &ssh.ClientConfig{
 		User:            viper.GetString("auth.user"),
 		Auth:            authMethods,
@@ -70,7 +77,7 @@ func init() {
 		Timeout:         viper.GetDuration("timeout")}
 }
 
-func doStuff(commands, hosts []string, wg *sync.WaitGroup) {
+func doStuff(mod modules.Module, hosts []string, wg *sync.WaitGroup) {
 	defer wg.Done()
 	port := viper.GetInt("port")
 
@@ -80,21 +87,11 @@ func doStuff(commands, hosts []string, wg *sync.WaitGroup) {
 			log.Error(err)
 			continue
 		}
-		for _, cmd := range commands {
-			session, err := client.NewSession()
-			if err != nil {
-				log.Error(err)
-				continue
-			}
-
-			output, err := session.CombinedOutput(cmd)
-			outputMutex.Lock()
-			if err != nil {
-				fmt.Printf("\n=== %s ===\n%s\n%s\n", hosts[i], strings.TrimSpace(string(output)+err.Error()), strings.Repeat("=", len(hosts[i])+8))
-			} else {
-				fmt.Printf("\n=== %s ===\n%s\n%s\n", hosts[i], strings.TrimSpace(string(output)), strings.Repeat("=", len(hosts[i])+8))
-			}
-			outputMutex.Unlock()
+		output, err := mod.RunModule(client, hosts[i])
+		if err != nil {
+			log.Error(err)
+		} else {
+			fmt.Print(output)
 		}
 	}
 }
@@ -107,12 +104,18 @@ func main() {
 
 	var wg sync.WaitGroup
 	threads := viper.GetInt("threads")
+	if threads > len(inventory) {
+		threads = len(inventory)
+	}
+
+	mod, err := moduleFactory(args)
+	if err != nil {
+		log.Panic(err)
+	}
+
 	wg.Add(threads)
 	for i := 0; i < threads; i++ {
-		if i >= len(inventory) {
-			break
-		}
-		go doStuff(args, inventory[i:], &wg)
+		go doStuff(mod, inventory[i:], &wg)
 	}
 	wg.Wait()
 }

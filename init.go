@@ -2,6 +2,7 @@ package main
 
 import (
 	"errors"
+	"huensible/modules"
 	"io/ioutil"
 	"regexp"
 
@@ -63,4 +64,12 @@ func parseInventory(inventoryFile string) ([]string, error) {
 	}
 
 	return parsedHosts, nil
+}
+
+func parseModule(moduleFlag string) (modules.ModuleFactory, error) {
+	if mod, ok := modules.Modules[moduleFlag]; ok {
+		return mod, nil
+	} else {
+		return nil, errors.New("module not found")
+	}
 }
